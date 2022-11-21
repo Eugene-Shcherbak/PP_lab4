@@ -1,0 +1,307 @@
+from flask import Flask
+from waitress import serve
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from flask_restful import reqparse
+from flask import Flask, request
+from passlib.hash import pbkdf2_sha256
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:14481337@localhost:3306/shop'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+db = SQLAlchemy(app)
+migrate = Migrate(app, db)
+
+
+# імпорт модельки
+# from src.model.user import User
+# from src.model.product import Product
+
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(50), unique=True, nullable=False)
+    text = db.Column(db.String(50), unique=True, nullable=False)
+    state = db.Column(db.String(50), nullable=False)
+    category = db.Column(db.String(50), nullable=False)
+
+    def save(self):
+        return {
+            'id': self.id,
+            'title': self.title,
+            'text': self.text,
+            'state': self.state,
+            'category': self.category,
+        }
+
+    def save_db(self):
+        db.session.add(self)
+        db.session.commit()
+
+    @classmethod
+    def get_by_id(cls, myid):
+        return Product.query.filter_by(id=myid).first()
+
+    @classmethod
+    def get_by_title(cls, mytitle):
+        return Product.query.filter_by(title=mytitle).first()
+
+    # дороби ерори
+    @classmethod
+    def delete(cls, myid):
+        product = Product.get_by_id(myid)
+        product_json = product.save(product)
+        product.query.filter_by(id=myid).delete()
+        db.session.commit()
+        return product_json
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    firstname = db.Column(db.String(50), nullable=False)
+    lastname = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(50), unique=True, nullable=False)
+    password_hash = db.Column(db.String(150), nullable=False)
+
+    def save(self):
+        return {
+            'id': self.id,
+            'username': self.username,
+            'firstname': self.firstname,
+            'lastname': self.lastname,
+            'email': self.email,
+            'password_hash': self.password_hash
+        }
+
+    def save_db(self):
+        db.session.add(self)
+        db.session.commit()
+
+    @staticmethod
+    def create_hash(password):
+        return pbkdf2_sha256.hash(password)
+
+    @staticmethod
+    def check_hash(password, myhash):
+        return pbkdf2_sha256.verify(password, myhash)
+
+    @classmethod
+    def get_by_id(cls, myid):
+        return User.query.filter_by(id=myid).first()
+
+    @classmethod
+    def get_by_username(cls, myusername):
+        return User.query.filter_by(username=myusername).first()
+
+    @classmethod
+    def user_list(cls):
+        def to_json(user):
+            return {
+                'id': user.id,
+                'username': user.username,
+                'firstname': user.firstname,
+                'lastname': user.lastname,
+                'email': user.email,
+                'password_hash': user.password_hash
+            }
+
+        return {"users": [to_json(user) for user in User.query.all()]}
+
+    @classmethod
+    def delete(cls, myid):  # дороби ерори
+        try:
+            user = User.get_by_id(myid)
+            user_json = User.save(user)
+            User.query.filter_by(id=myid).delete()
+            db.session.commit()
+            return user_json
+        except Exception:
+            return
+
+
+@app.before_request
+def init_database():
+    #db.drop_all()
+    db.create_all()
+    db.session.commit()
+
+
+@app.route("/api/v1/hello-world-29")
+def hello():
+    return "Hello World 29"
+
+
+@app.route("/product", methods=['POST', 'PUT'])
+def product():
+    if request.method == 'POST':  # +
+        pars = reqparse.RequestParser()
+        pars.add_argument('title', help='name cannot be blank', required=True)
+        pars.add_argument('text', help='name cannot be blank', required=True)
+        pars.add_argument('state', help='status cannot be blank', required=True)
+        pars.add_argument('category', help='status cannot be blank', required=True)
+
+        data = pars.parse_args()
+
+        title = data['title']
+        text = data['text']
+        state = data['state']
+        category = data['category']
+
+        product_1 = Product(
+            title=title,
+            text=text,
+            state=state,
+            category=category
+        )
+        #try:
+        product_1.save_db()
+        return {"message": "new product added"}, 200
+        #except Exception:
+         #   return {"message": "error"}, 405
+
+    elif request.method == 'PUT': #+
+        pars = reqparse.RequestParser()
+        pars.add_argument('id', help='id cannot be blank', required=True)
+        pars.add_argument('title', help='title cannot be blank', required=True)
+        pars.add_argument('text', help='text cannot be blank', required=True)
+        pars.add_argument('state', help='state cannot be blank', required=True)
+        pars.add_argument('category', help='category cannot be blank', required=True)
+
+        data = pars.parse_args()
+        id = int(data['id'])
+
+        try:
+            product_1 = Product.query.filter_by(id=id).first()
+            print(Product.save(product_1))
+            product_1.title = data['title']
+            product_1.text = data['text']
+            product_1.state = data['state']
+            product_1.category = data['category']
+
+            db.session.commit()
+            return {"message": "product is updated"}, 200
+        except Exception:
+            return {"message": "Product with this id does not exist"}, 500
+
+
+@app.route('/product/<int:product_id>', methods=['DELETE', 'GET'])
+def product_by_id(product_id):
+    if request.method == 'GET': # +
+        try:
+            product_1 = Product.get_by_id(product_id)
+
+            return {'id': product_1.id,
+                    'title': product_1.title,
+                    'text': product_1.text,
+                    'state': product_1.state,
+                    'category': product_1.category
+                    }, 200
+        except Exception:
+            return {'message': 'Error'}, 500
+
+
+    elif request.method == 'DELETE': # +
+        if Product.query.filter_by(id=product_id).first() == None:
+            return {"message": f"Product not found"}, 404
+        try:
+            Product.query.filter_by(id=product_id).delete()
+            db.session.commit()
+            return {"message": f"item is deleted"}, 200
+        except Exception:
+            return {"message": f"Something went wrong"}, 500
+
+
+@app.route('/user', methods=['POST'])  # +
+def user():
+    pars = reqparse.RequestParser()
+    pars.add_argument('username', help='username cannot be blank', required=True)
+    pars.add_argument('firstname', help='firstName cannot be blank', required=True)
+    pars.add_argument('lastname', help='lastName cannot be blank', required=True)
+    pars.add_argument('email', help='email cannot be blank', required=True)
+    pars.add_argument('password_hash', help='password cannot be blank', required=True)
+
+    data = pars.parse_args()
+    data['password_hash'] = User.create_hash(data['password_hash'])
+    try:
+        username = (data['username'])
+        firstname = (data['firstname'])
+        lastname = data['lastname']
+        email = data['email']
+        password_hash = (data['password_hash'])
+    except Exception:
+        return {'message': 'error'}, 500
+
+    user_1 = User(
+        username=username,
+        firstname=firstname,
+        lastname=lastname,
+        email=email,
+        password_hash=User.create_hash(password_hash=password_hash)
+    )
+    try:
+        user_1.save_db()
+        return {"message": "everything is good"}, 200
+    except Exception:
+        return {"message": "error"}, 500
+
+
+@app.route('/user/<string:username>', methods=['PUT', 'DELETE', 'GET'])
+def user_by_nickname(username):
+    if request.method == 'PUT': # +
+        pars = reqparse.RequestParser()
+        pars.add_argument('username', help='username cannot be blank', required=True)
+        pars.add_argument('firstname', help='firstName cannot be blank', required=True)
+        pars.add_argument('lastname', help='lastName cannot be blank', required=True)
+        pars.add_argument('email', help='email cannot be blank', required=True)
+        pars.add_argument('password_hash', help='password cannot be blank', required=True)
+
+        data = pars.parse_args()
+        data['password_hash'] = User.create_hash(data['password_hash'])
+
+
+        try:
+            User.query.filter_by(username=username).update(data)
+            db.session.commit()
+            return {"message": f"User {username} is updated"}
+        except Exception:
+            return {"message": "Something went wrong"}, 500
+        pass
+
+    elif request.method == 'GET': # +
+        try:
+
+            user_1 = User.get_by_username(username)
+            return {
+                       "id": user_1.id,
+                       "username": user_1.username,
+                       "firstname": user_1.firstname,
+                       "lastname": user_1.lastname,
+                       "email": user_1.email,
+                       "password": user_1.password_hash,
+                   }, 200
+        except Exception:
+            return {'message': 'Error'}, 500
+
+
+    elif request.method == 'DELETE': # +
+        try:
+            temp = int(username)
+            return {"message": "Bad request"}, 500
+        except Exception:
+            pass
+
+        if User.query.filter_by(username=username).first() == None:
+            return {"message": "Something went wrong"}, 404
+
+        try:
+            User.query.filter_by(username=username).delete()
+            db.session.commit()
+            return {"message": f"user with {username} was deleted"}, 200
+        except Exception:
+            return {"message": "Something went wrong"}, 500
+
+
+if __name__ == "__main__":
+    # serve(app)
+    app.run(debug=True)
