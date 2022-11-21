@@ -1,4 +1,4 @@
-from src.main import db
+from src.main import app,db
 from flask import Flask, request
 from flask_migrate import Migrate
 from flask_restful import reqparse
@@ -42,7 +42,7 @@ class Product(db.Model):
         db.session.commit()
         return product_json
 
-    @main.route("/product", methods=['POST', 'PUT'])
+    @app.route("/product", methods=['POST', 'PUT'])
     def product():
         if request.method == 'POST':
             pars = reqparse.RequestParser()

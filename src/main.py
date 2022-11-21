@@ -5,18 +5,58 @@ from flask_migrate import Migrate
 from flask_restful import reqparse
 from flask import Flask, request
 from passlib.hash import pbkdf2_sha256
+from flask_httpauth import HTTPBasicAuth
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:14481337@localhost:3306/shop'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:fojdb67332#@localhost:3306/shop'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+auth = HTTPBasicAuth()
 
 
-# імпорт модельки
 # from src.model.user import User
 # from src.model.product import Product
+
+@auth.verify_password
+def verify_password(username, password):
+    user = User.get_by_username(username)
+
+    if user and User.check_hash(password, user.password_hash):
+        return username
+
+
+@auth.get_user_roles
+def get_user_roles(user):
+    user_entity = User.get_by_username(user)
+    return [role.name for role in user_entity.roles]
+
+
+class Role(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False)
+
+    def to_json(self):
+        return {
+            'id': self.id,
+            'name': self.name
+        }
+
+    def save_to_db(self):
+        db.session.add(self)
+        db.session.commit()
+
+    @classmethod
+    def get_by_name(cls, name):
+        return cls.query.filter_by(name=name).first()
+
+
+class UsersRoles(db.Model):
+    id = db.Column(db.Integer(), primary_key=True)
+    user_id = db.Column(db.Integer(), db.ForeignKey('user.id', ondelete='CASCADE'))
+    role_id = db.Column(db.Integer(), db.ForeignKey('role.id', ondelete='CASCADE'))
+
 
 class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -63,6 +103,8 @@ class User(db.Model):
     lastname = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(150), nullable=False)
+    roles = db.relationship('Role', secondary='users_roles',
+                            backref=db.backref('user', lazy='dynamic'))
 
     def save(self):
         return {
@@ -122,17 +164,19 @@ class User(db.Model):
 
 @app.before_request
 def init_database():
-    #db.drop_all()
+    # db.drop_all()
     db.create_all()
     db.session.commit()
 
 
 @app.route("/api/v1/hello-world-29")
+@auth.login_required(role='admin')
 def hello():
     return "Hello World 29"
 
 
 @app.route("/product", methods=['POST', 'PUT'])
+@auth.login_required(role='admin')
 def product():
     if request.method == 'POST':  # +
         pars = reqparse.RequestParser()
@@ -154,13 +198,13 @@ def product():
             state=state,
             category=category
         )
-        #try:
+        # try:
         product_1.save_db()
         return {"message": "new product added"}, 200
-        #except Exception:
-         #   return {"message": "error"}, 405
+        # except Exception:
+        #   return {"message": "error"}, 405
 
-    elif request.method == 'PUT': #+
+    elif request.method == 'PUT':  # +
         pars = reqparse.RequestParser()
         pars.add_argument('id', help='id cannot be blank', required=True)
         pars.add_argument('title', help='title cannot be blank', required=True)
@@ -185,31 +229,33 @@ def product():
             return {"message": "Product with this id does not exist"}, 500
 
 
-@app.route('/product/<int:product_id>', methods=['DELETE', 'GET'])
+@app.route('/product/<int:product_id>', methods=['GET'])
+@auth.login_required(role='user')
 def product_by_id(product_id):
-    if request.method == 'GET': # +
-        try:
-            product_1 = Product.get_by_id(product_id)
+    try:
+        product_1 = Product.get_by_id(product_id)
 
-            return {'id': product_1.id,
-                    'title': product_1.title,
-                    'text': product_1.text,
-                    'state': product_1.state,
-                    'category': product_1.category
-                    }, 200
-        except Exception:
-            return {'message': 'Error'}, 500
+        return {'id': product_1.id,
+                'title': product_1.title,
+                'text': product_1.text,
+                'state': product_1.state,
+                'category': product_1.category
+                }, 200
+    except Exception:
+        return {'message': 'Error'}, 500
 
 
-    elif request.method == 'DELETE': # +
-        if Product.query.filter_by(id=product_id).first() == None:
-            return {"message": f"Product not found"}, 404
-        try:
-            Product.query.filter_by(id=product_id).delete()
-            db.session.commit()
-            return {"message": f"item is deleted"}, 200
-        except Exception:
-            return {"message": f"Something went wrong"}, 500
+@app.route('/product/<int:product_id>', methods=['DELETE'])
+@auth.login_required(role='admin')
+def product_by_id2(product_id):
+    if Product.query.filter_by(id=product_id).first() == None:
+        return {"message": f"Product not found"}, 404
+    try:
+        Product.query.filter_by(id=product_id).delete()
+        db.session.commit()
+        return {"message": f"item is deleted"}, 200
+    except Exception:
+        return {"message": f"Something went wrong"}, 500
 
 
 @app.route('/user', methods=['POST'])  # +
@@ -237,69 +283,81 @@ def user():
         firstname=firstname,
         lastname=lastname,
         email=email,
-        password_hash=User.create_hash(password_hash=password_hash)
+        password_hash=password_hash
     )
     try:
+        role = Role.get_by_name("user")
+        user_1.roles.append(role)
         user_1.save_db()
         return {"message": "everything is good"}, 200
     except Exception:
         return {"message": "error"}, 500
 
 
-@app.route('/user/<string:username>', methods=['PUT', 'DELETE', 'GET'])
+@app.route('/user/<string:username>', methods=['PUT', 'DELETE'])
+@auth.login_required(role='user')
 def user_by_nickname(username):
-    if request.method == 'PUT': # +
-        pars = reqparse.RequestParser()
-        pars.add_argument('username', help='username cannot be blank', required=True)
-        pars.add_argument('firstname', help='firstName cannot be blank', required=True)
-        pars.add_argument('lastname', help='lastName cannot be blank', required=True)
-        pars.add_argument('email', help='email cannot be blank', required=True)
-        pars.add_argument('password_hash', help='password cannot be blank', required=True)
+    username1 = auth.current_user()
+    userr = User.get_by_username(username1)
+    admin = Role.get_by_name("admin")
+    if username1 == username or admin in userr.roles:
 
-        data = pars.parse_args()
-        data['password_hash'] = User.create_hash(data['password_hash'])
+        if request.method == 'PUT':  # +
+            pars = reqparse.RequestParser()
+            pars.add_argument('username', help='username cannot be blank', required=True)
+            pars.add_argument('firstname', help='firstName cannot be blank', required=True)
+            pars.add_argument('lastname', help='lastName cannot be blank', required=True)
+            pars.add_argument('email', help='email cannot be blank', required=True)
+            pars.add_argument('password_hash', help='password cannot be blank', required=True)
 
+            data = pars.parse_args()
+            data['password_hash'] = User.create_hash(data['password_hash'])
 
-        try:
-            User.query.filter_by(username=username).update(data)
-            db.session.commit()
-            return {"message": f"User {username} is updated"}
-        except Exception:
-            return {"message": "Something went wrong"}, 500
-        pass
-
-    elif request.method == 'GET': # +
-        try:
-
-            user_1 = User.get_by_username(username)
-            return {
-                       "id": user_1.id,
-                       "username": user_1.username,
-                       "firstname": user_1.firstname,
-                       "lastname": user_1.lastname,
-                       "email": user_1.email,
-                       "password": user_1.password_hash,
-                   }, 200
-        except Exception:
-            return {'message': 'Error'}, 500
-
-
-    elif request.method == 'DELETE': # +
-        try:
-            temp = int(username)
-            return {"message": "Bad request"}, 500
-        except Exception:
+            try:
+                User.query.filter_by(username=username).update(data)
+                db.session.commit()
+                return {"message": f"User {username} is updated"}
+            except Exception:
+                return {"message": "Something went wrong"}, 500
             pass
 
-        if User.query.filter_by(username=username).first() == None:
-            return {"message": "Something went wrong"}, 404
+        elif request.method == 'DELETE':  # +
+            try:
+                temp = int(username)
+                return {"message": "Bad request"}, 500
+            except Exception:
+                pass
 
-        try:
-            User.query.filter_by(username=username).delete()
-            db.session.commit()
-            return {"message": f"user with {username} was deleted"}, 200
-        except Exception:
-            return {"message": "Something went wrong"}, 500
+            if User.query.filter_by(username=username).first() == None:
+                return {"message": "Something went wrong"}, 404
+
+            try:
+                User.query.filter_by(username=username).delete()
+                db.session.commit()
+                return {"message": f"user with {username} was deleted"}, 200
+            except Exception:
+                return {"message": "Something went wrong"}, 500
+
+    else:
+        return {"message": "No permission"}, 401
+
+
+@app.route('/user/<string:username>', methods=['GET'])
+@auth.login_required(role='user')
+def user_by_nickname3(username):
+    try:
+
+        user_1 = User.get_by_username(username)
+        return {
+                   "id": user_1.id,
+                   "username": user_1.username,
+                   "firstname": user_1.firstname,
+                   "lastname": user_1.lastname,
+                   "email": user_1.email,
+                   "password": user_1.password_hash,
+               }, 200
+    except Exception:
+        return {'message': 'Error'}, 500
 
 
 if __name__ == "__main__":

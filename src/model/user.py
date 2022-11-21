@@ -10,6 +10,7 @@ class User(db.Model):
     email = db.Column(db.String(50), unique=True, nullable=False)
     password_hash = db.Column(db.String(50), nullable=False)
 
+
     def save(self):
         return{
             'id': self.id,
