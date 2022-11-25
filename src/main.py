@@ -13,25 +13,32 @@ app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:fojdb67332#@localhost:3306/shop'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+
+
+
+
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 auth = HTTPBasicAuth()
 
+@app.before_request
+def create_tables():
+ #db.drop_all()
+ db.create_all()
+ db.session.commit()
 
-# from src.model.user import User
-# from src.model.product import Product
 
 @auth.verify_password
 def verify_password(username, password):
-    user = User.get_by_username(username)
+    user1 = User.get_by_username(username)
 
-    if user and User.check_hash(password, user.password_hash):
+    if user1 and User.check_hash(password, user1.password_hash):
         return username
 
 
 @auth.get_user_roles
-def get_user_roles(user):
-    user_entity = User.get_by_username(user)
+def get_user_roles(user1):
+    user_entity = User.get_by_username(user1)
     return [role.name for role in user_entity.roles]
 
 
@@ -268,7 +275,7 @@ def product_by_id2(product_id):
 
 @app.route('/user', methods=['POST'])
 @handle_server_exception
-def user():
+def create_user():
     pars = reqparse.RequestParser()
     pars.add_argument('username', help='username cannot be blank', required=True)
     pars.add_argument('firstname', help='firstName cannot be blank', required=True)
@@ -284,7 +291,7 @@ def user():
         firstname = (data['firstname'])
         lastname = data['lastname']
         email = data['email']
-        password_hash = (data['password_hash'])
+        password_hash = data['password_hash']
     except Exception:
         return {'message': 'error'}, 500
 
@@ -312,7 +319,7 @@ def user():
 
 
 @app.route('/user/<string:username>', methods=['PUT', 'DELETE'])
-@handle_server_exception
+#@handle_server_exception
 @auth.login_required(role='user')
 def user_by_nickname(username):
     username1 = auth.current_user()
@@ -337,7 +344,6 @@ def user_by_nickname(username):
                 return {"message": f"User {username} is updated"}
             except Exception:
                 return {"message": "You haven't made any changes"}, 500
-            pass
 
         elif request.method == 'DELETE':  # +
             try:
@@ -352,7 +358,7 @@ def user_by_nickname(username):
             try:
                 User.query.filter_by(username=username).delete()
                 db.session.commit()
-                return {"message": f"user with {username} was deleted"}, 200
+                return {"message": f"user{username} was deleted"}, 200
             except Exception:
                 return {"message": "Something went wrong"}, 500
 
