@@ -9,23 +9,21 @@ from flask_httpauth import HTTPBasicAuth
 from src.error_handler.exception_wrapper import handle_error_format
 from src.error_handler.exception_wrapper import handle_server_exception
 
+
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:fojdb67332#@localhost:3306/shop'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-
-
-
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 auth = HTTPBasicAuth()
 
-@app.before_request
-def create_tables():
- #db.drop_all()
- db.create_all()
- db.session.commit()
+
+#@app.before_request
+#def create_tables():
+    #db.drop_all()
+    #db.create_all()
+    #db.session.commit()
 
 
 @auth.verify_password
@@ -95,7 +93,6 @@ class Product(db.Model):
     def get_by_title(cls, mytitle):
         return Product.query.filter_by(title=mytitle).first()
 
-    # дороби ерори
     @classmethod
     def delete(cls, myid):
         product = Product.get_by_id(myid)
@@ -319,7 +316,7 @@ def create_user():
 
 
 @app.route('/user/<string:username>', methods=['PUT', 'DELETE'])
-#@handle_server_exception
+# @handle_server_exception
 @auth.login_required(role='user')
 def user_by_nickname(username):
     username1 = auth.current_user()
