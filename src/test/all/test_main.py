@@ -1,5 +1,5 @@
 from unittest import TestCase, mock
-from src.main import User, Product, product, update_product, product_by_id, product_by_id2
+from src.main import User, Product, product, update_product, product_by_id, product_by_id2, create_user
 from src.main import User, Role
 from undecorated import undecorated
 from src.main import verify_password, get_user_roles, hello, Role
@@ -322,8 +322,62 @@ class TestProducts(TestCase):
 
     @mock.patch('src.main.Product.delete')
     def test_product_by_id2(self, mock_delete):
-        mock_delete.return_value = self.get_product_json
+        mock_delete().return_value = self.get_product_json
+
         undecorated_product_by_id2 = undecorated(product_by_id2)
         result = undecorated_product_by_id2(1)
 
-        self.assertEqual({"message": f"Product not found"}, 404, result)
+        self.assertEqual(self.get_product_json, result)
+
+
+class TestUsers(TestCase):
+
+    def setUp(self) -> None:
+        self.user = User(
+            username='username',
+            firstname='firstname',
+            lastname='lastname',
+            email='email',
+            password_hash='password_hash'
+        )
+
+        self.user_json_create = {
+            'username': 'testmepls',
+            'firstName': 'Yevhen',
+            'lastName': 'Shcherbak',
+            'email': 'mocke@gmail.com',
+            'password_hash': 'iexist'
+        }
+
+        self.get_user_json = {
+            'email': 'email',
+            'first_name': 'first_name',
+            'id': None,
+            'last_name': 'last_name',
+            'password': 'password',
+            'roles': [],
+            'username': 'username'
+        }
+
+        self.update_user_json = {
+            'username': 'new',
+            'firstName': 'new',
+            'lastName': 'new'
+        }
+
+    @mock.patch('src.main.User.save_db')
+    @mock.patch('src.main.Role.get_by_name')
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('src.main.User.create_hash')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_create_user(self, mock_request_parser, mock_create_hash, mock_get_by_username, mock_get_by_name,
+                         mock_save_db):
+        mock_request_parser.return_value = self.user_json_create
+        mock_create_hash.return_value = 'password_hash'
+        mock_get_by_username.return_value = False
+        mock_get_by_name.return_value = Role(id=1, name='user')
+        mock_save_db.return_value = True
+
+        result = create_user()
+
+        self.assertEqual(({'message': 'error'}, 500), result)
