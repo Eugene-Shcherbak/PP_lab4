@@ -1,5 +1,6 @@
 from unittest import TestCase, mock
-from src.main import User, Product, product, update_product, product_by_id, product_by_id2, create_user
+from src.main import User, Product, product, update_product, product_by_id, create_user, \
+    user_by_nickname3, update_user_by_id, delete_user_by_id, delete_product_by_id
 from src.main import User, Role
 from undecorated import undecorated
 from src.main import verify_password, get_user_roles, hello, Role
@@ -10,10 +11,10 @@ class TestAuth(TestCase):
     def setUp(self) -> None:
         self.user = User(
             username='username',
-            firstname='first_name',
-            lastname='last_name',
+            firstname='firstname',
+            lastname='lastname',
             email='email',
-            password_hash='password_hash'
+            password='password'
         )
 
         self.user.roles.append(Role(id=1, name='user'))
@@ -153,7 +154,7 @@ class TestUser(TestCase):
             firstname='firstname',
             lastname='lastname',
             email='email',
-            password_hash='password_hash'
+            password='password'
         )
 
     def test_save(self):
@@ -164,7 +165,7 @@ class TestUser(TestCase):
             'firstname': 'firstname',
             'id': None,
             'lastname': 'lastname',
-            'password_hash': 'password_hash',
+            'password': 'password',
             'roles': [],
             'username': 'username'}
 
@@ -188,7 +189,7 @@ class TestUser(TestCase):
     def test_create_hash(self):
         user = self.user
 
-        result = user.create_hash('password_hash')
+        result = user.create_hash('password')
 
         self.assertTrue(result)
 
@@ -321,13 +322,24 @@ class TestProducts(TestCase):
              'traceId': result[0].get('traceId')}, 400), result)
 
     @mock.patch('src.main.Product.delete')
-    def test_product_by_id2(self, mock_delete):
-        mock_delete().return_value = self.get_product_json
+    @mock.patch('src.main.Product.get_by_id')
+    @mock.patch('src.main.Role.get_by_name')
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('flask_httpauth.HTTPAuth.current_user')
+    def test_delete_product_by_id(self, mock_current_user, mock_get_by_username, mock_get_by_name, mock_get_by_id,
+                                  mock_delete):
+        mock_current_user.return_value = 'username'
+        mock_get_by_id.return_value = self.product
+        mock_delete.return_value = Product.save(self.product)
 
-        undecorated_product_by_id2 = undecorated(product_by_id2)
-        result = undecorated_product_by_id2(1)
+        undecorated_delete_account_by_id = undecorated(delete_product_by_id)
+        result = undecorated_delete_account_by_id(1)
 
-        self.assertEqual(self.get_product_json, result)
+        self.assertEqual({'category': 'category',
+                          'id': 1,
+                          'state': 'state',
+                          'text': 'text',
+                          'title': 'title'}, result)
 
 
 class TestUsers(TestCase):
@@ -338,31 +350,40 @@ class TestUsers(TestCase):
             firstname='firstname',
             lastname='lastname',
             email='email',
-            password_hash='password_hash'
+            password='password'
         )
 
         self.user_json_create = {
             'username': 'testmepls',
-            'firstName': 'Yevhen',
-            'lastName': 'Shcherbak',
+            'firstname': 'Yevhen',
+            'lastname': 'Shcherbak',
             'email': 'mocke@gmail.com',
-            'password_hash': 'iexist'
+            'password': 'iexist23fd'
         }
 
         self.get_user_json = {
             'email': 'email',
-            'first_name': 'first_name',
+            'firstname': 'firstname',
             'id': None,
-            'last_name': 'last_name',
+            'lastname': 'lastname',
             'password': 'password',
             'roles': [],
             'username': 'username'
         }
 
+        self.get_user_json_no_roles = {
+            'email': 'email',
+            'firstname': 'firstname',
+            'id': None,
+            'lastname': 'lastname',
+            'password': 'password',
+            'username': 'username'
+        }
+
         self.update_user_json = {
             'username': 'new',
-            'firstName': 'new',
-            'lastName': 'new'
+            'firstname': 'new',
+            'lastname': 'new'
         }
 
     @mock.patch('src.main.User.save_db')
@@ -373,11 +394,134 @@ class TestUsers(TestCase):
     def test_create_user(self, mock_request_parser, mock_create_hash, mock_get_by_username, mock_get_by_name,
                          mock_save_db):
         mock_request_parser.return_value = self.user_json_create
-        mock_create_hash.return_value = 'password_hash'
+        mock_create_hash.return_value = 'password'
         mock_get_by_username.return_value = False
         mock_get_by_name.return_value = Role(id=1, name='user')
         mock_save_db.return_value = True
 
         result = create_user()
 
-        self.assertEqual(({'message': 'error'}, 500), result)
+        self.assertEqual(({'message': 'User was successfully created'}, 200), result)
+
+    @mock.patch('src.main.User.get_by_username')
+    def test_user_by_username(self, mock_get_by_username):
+        mock_get_by_username.return_value = self.user
+
+        undecorated_get_by_username = undecorated(user_by_nickname3)
+        result = undecorated_get_by_username(1)
+
+        self.assertEqual((self.get_user_json_no_roles, 200), result)
+
+    @mock.patch('src.main.User.get_by_username')
+    def test_get_user_by_username_with_validation_error(self, mock_get_by_username):
+        mock_get_by_username.return_value = None
+
+        undecorated_get_by_username = undecorated(user_by_nickname3)
+        result = undecorated_get_by_username(1)
+
+        self.assertEqual(({'errors': [{'message': 'User with such username does not exist.',
+                                       'source': "Field 'username' in the request body."}],
+                           'traceId': result[0].get('traceId')}, 404), result)
+
+    @mock.patch('src.main.User.create_hash')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_create_user_with_email_check_fail(self, mock_request_parser, mock_create_hash):
+        self.user_json_create['email'] = 'invalid'
+
+        mock_request_parser.return_value = self.user_json_create
+        mock_create_hash.return_value = 'password'
+
+        result = create_user()
+
+        self.assertEqual(({'errors': [{'message': 'Please, enter valid email address.',
+                                       'source': "Field 'email' in the request body."}],
+                           'traceId': result[0].get('traceId')}, 400), result)
+
+    @mock.patch('src.main.User.create_hash')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_create_user_with_password_check_fail(self, mock_request_parser, mock_create_hash):
+        self.user_json_create['password'] = 'pass'
+
+        mock_request_parser.return_value = self.user_json_create
+        mock_create_hash.return_value = 'password'
+
+        result = create_user()
+
+        self.assertEqual(({'errors': [{'message': 'Password should consist of at least 8 symbols.',
+                                       'source': "Field 'password' in the request body."}],
+                           'traceId': result[0].get('traceId')}, 400), result)
+
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('src.main.User.create_hash')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_create_user_with_username_check_fail(self, mock_request_parser, mock_create_hash, mock_get_by_username):
+        mock_request_parser.return_value = self.user_json_create
+        mock_create_hash.return_value = 'password'
+        mock_get_by_username.return_value = True
+
+        result = create_user()
+
+        self.assertEqual(({'errors': [{'message': 'User with such username already exists.',
+                                       'source': "Field 'username' in the request body."}],
+                           'traceId': result[0].get('traceId')}, 400), result)
+
+    @mock.patch('src.main.User.save_db')
+    @mock.patch('src.main.User.get_by_id')
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_update_user_by_id(self, mock_request_parser, mock_get_by_username, mock_get_by_id, mock_save_db):
+        mock_request_parser.return_value = self.update_user_json
+        mock_get_by_username.return_value = None
+        mock_get_by_id.return_value = self.user
+        mock_save_db.return_value = True
+
+        undecorated_update_user_by_id = undecorated(update_user_by_id)
+        result = undecorated_update_user_by_id(1)
+
+        self.get_user_json['username'], self.get_user_json['first_name'], self.get_user_json[
+            'last_name'] = 'new', 'new', 'new'
+
+        self.assertEqual({'email': 'email',
+                          'firstname': 'new',
+                          'id': None,
+                          'lastname': 'new',
+                          'password': 'password',
+                          'roles': [],
+                          'username': 'new'}, result)
+
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_update_user_by_id_with_invalid_id(self, mock_request_parser, mock_get_by_username):
+        mock_request_parser.return_value = self.update_user_json
+        mock_get_by_username.return_value = self.user
+
+        undecorated_update_user_by_id = undecorated(update_user_by_id)
+        result = undecorated_update_user_by_id(1)
+
+        self.assertEqual(({'errors': [{'message': 'User with such username already exists.',
+                                       'source': "Field 'username' in the request body."}],
+                           'traceId': result[0].get('traceId')}, 400), result)
+
+    @mock.patch('src.main.User.get_by_id')
+    @mock.patch('src.main.User.get_by_username')
+    @mock.patch('flask_restful.reqparse.RequestParser.parse_args')
+    def test_update_user_by_id_with_invalid_username(self, mock_request_parser, mock_get_by_username, mock_get_by_id):
+        mock_request_parser.return_value = self.update_user_json
+        mock_get_by_username.return_value = None
+        mock_get_by_id.return_value = None
+
+        undecorated_update_user_by_id = undecorated(update_user_by_id)
+        result = undecorated_update_user_by_id(1)
+
+        self.assertEqual(({'errors': [{'message': 'User with such id does not exist.',
+                                       'source': "Field 'userId' in path parameters."}],
+                           'traceId': result[0].get('traceId')}, 404), result)
+
+    @mock.patch('src.main.User.delete')
+    def test_delete_user_by_id(self, mock_delete):
+        mock_delete.return_value = self.get_user_json
+
+        undecorated_delete_user_by_id = undecorated(delete_user_by_id)
+        result = undecorated_delete_user_by_id(1)
+
+        self.assertEqual(self.get_user_json, result)

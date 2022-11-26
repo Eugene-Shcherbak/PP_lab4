@@ -28,7 +28,7 @@ auth = HTTPBasicAuth()
 def verify_password(username, password):
     user1 = User.get_by_username(username)
 
-    if user1 and User.check_hash(password, user1.password_hash):
+    if user1 and User.check_hash(password, user1.password):
         return username
 
 
@@ -106,7 +106,7 @@ class User(db.Model):
     firstname = db.Column(db.String(50), nullable=False)
     lastname = db.Column(db.String(50), nullable=False)
     email = db.Column(db.String(50), unique=True, nullable=False)
-    password_hash = db.Column(db.String(150), nullable=False)
+    password = db.Column(db.String(150), nullable=False)
     roles = db.relationship('Role', secondary='users_roles',
                             backref=db.backref('user', lazy='dynamic'))
 
@@ -117,7 +117,7 @@ class User(db.Model):
             'firstname': self.firstname,
             'lastname': self.lastname,
             'email': self.email,
-            'password_hash': self.password_hash,
+            'password': self.password,
             'roles': [role.name for role in self.roles]
         }
 
@@ -233,111 +233,103 @@ def product_by_id(product_id):
             }, 200
 
 
-@app.route('/product/<int:product_id>', methods=['DELETE'])
+@app.route('/product/<ProductId>', methods=['DELETE'])
+@auth.login_required(role=['user', 'admin'])
 @handle_server_exception
-@auth.login_required(role='admin')
-def product_by_id2(product_id):
-    if Product.query.filter_by(id=product_id).first() == None:
-        return {"message": f"Product not found"}, 404
-    try:
-        Product.query.filter_by(id=product_id).delete()
-        db.session.commit()
-        return {"message": f"item is deleted"}, 200
-    except Exception:
-        return {"message": f"Something went wrong"}, 500
+def delete_product_by_id(ProductId: int):
+    username = auth.current_user()
+    user = User.get_by_username(username)
+
+    admin = Role.get_by_name('admin')
+    if admin in user.roles:
+        return Product.delete(ProductId)
+    return Product.delete(ProductId)
+
 
 
 @app.route('/user', methods=['POST'])
 @handle_server_exception
 def create_user():
-    pars = reqparse.RequestParser()
-    pars.add_argument('username', help='username cannot be blank', required=True)
-    pars.add_argument('firstname', help='firstName cannot be blank', required=True)
-    pars.add_argument('lastname', help='lastName cannot be blank', required=True)
-    pars.add_argument('email', help='email cannot be blank', required=True)
-    pars.add_argument('password_hash', help='password cannot be blank', required=True)
+    parser = reqparse.RequestParser()
 
-    data = pars.parse_args()
-    data['password_hash'] = User.create_hash(data['password_hash'])
+    parser.add_argument('username', help='username cannot be blank', required=True)
+    parser.add_argument('firstname', help='firstname cannot be blank', required=True)
+    parser.add_argument('lastname', help='lastName cannot be blank', required=True)
+    parser.add_argument('email', help='email cannot be blank', required=True)
+    parser.add_argument('password', help='password cannot be blank', required=True)
 
-    try:
-        username = (data['username'])
-        firstname = (data['firstname'])
-        lastname = data['lastname']
-        email = data['email']
-        password_hash = data['password_hash']
-    except Exception:
-        return {'message': 'error'}, 500
+    data = parser.parse_args()
+    username = data['username']
+    firstname = data['firstname']
+    lastname = data['lastname']
+    email = data['email']
+    password = data['password']
+    password_hash = User.create_hash(password)
+
+    if '@' not in email:
+        return handle_error_format('Please, enter valid email address.', 'Field \'email\' in the request body.'), 400
+
+    if len(password) < 8:
+        return handle_error_format('Password should consist of at least 8 symbols.',
+                                   'Field \'password\' in the request body.'), 400
+
+    if User.get_by_username(username):
+        return handle_error_format('User with such username already exists.',
+                                   'Field \'username\' in the request body.'), 400
 
     user_1 = User(
         username=username,
         firstname=firstname,
         lastname=lastname,
         email=email,
-        password_hash=password_hash
+        password=password_hash
     )
-    if '@' not in email:
-        return handle_error_format('Please, enter valid email address.', 'Field \'email\' in the request body.'), 400
+
+    role = Role.get_by_name('user')
+    user_1.roles.append(role)
+    user_1.save_db()
+
+    return {"message": "User was successfully created"}, 200
+
+
+@app.route('/user/<userId>', methods=['PUT'])
+@auth.login_required(role='admin')
+@handle_server_exception
+def update_user_by_id(userId: int):
+    parser = reqparse.RequestParser()
+
+    parser.add_argument('username', help='username cannot be blank')
+    parser.add_argument('firstname', help='firstname cannot be blank')
+    parser.add_argument('lastname', help='lastname cannot be blank')
+
+    data = parser.parse_args()
+    username = data['username']
+    firstname = data['firstname']
+    lastname = data['lastname']
 
     if User.get_by_username(username):
         return handle_error_format('User with such username already exists.',
                                    'Field \'username\' in the request body.'), 400
 
-    try:
-        role = Role.get_by_name("user")
-        user_1.roles.append(role)
-        user_1.save_db()
-        return {"message": "User was successfully created"}, 200
-    except Exception:
-        return {"message": "Username Or Email are already taken"}, 500
+    user1 = User.get_by_id(userId)
+
+    if not user1:
+        return handle_error_format('User with such id does not exist.',
+                                   'Field \'userId\' in path parameters.'), 404
+
+    user1.username = username
+    user1.firstname = firstname
+    user1.lastname = lastname
+    user1.save_db()
+
+    return User.save(user1)
 
 
-@app.route('/user/<string:username>', methods=['PUT', 'DELETE'])
+@app.route('/user/<userId>', methods=['DELETE'])
+@auth.login_required(role='admin')
 @handle_server_exception
-@auth.login_required(role='user')
-def user_by_nickname(username):
-    username1 = auth.current_user()
-    userr = User.get_by_username(username1)
-    admin = Role.get_by_name("admin")
-    if username1 == username or admin in userr.roles:
-
-        if request.method == 'PUT':  # +
-            pars = reqparse.RequestParser()
-            pars.add_argument('username', help='username cannot be blank', required=True)
-            pars.add_argument('firstname', help='firstName cannot be blank', required=True)
-            pars.add_argument('lastname', help='lastName cannot be blank', required=True)
-            pars.add_argument('email', help='email cannot be blank', required=True)
-            pars.add_argument('password_hash', help='password cannot be blank', required=True)
-
-            data = pars.parse_args()
-            data['password_hash'] = User.create_hash(data['password_hash'])
-
-            try:
-                User.query.filter_by(username=username).update(data)
-                db.session.commit()
-                return {"message": f"User {username} is updated"}
-            except Exception:
-                return {"message": "You haven't made any changes"}, 500
-
-        elif request.method == 'DELETE':  # +
-            try:
-                temp = int(username)
-                return {"message": "Bad request"}, 500
-            except Exception:
-                pass
-
-            if User.query.filter_by(username=username).first() == None:
-                return {"message": "User does not exist"}, 404
-
-            try:
-                User.query.filter_by(username=username).delete()
-                db.session.commit()
-                return {"message": f"user{username} was deleted"}, 200
-            except Exception:
-                return {"message": "Something went wrong"}, 500
-
-    else:
-        return {"message": "No permission"}, 401
+def delete_user_by_id(userId: int):
+    return User.delete(userId)
 
 
 @app.route('/user/<string:username>', methods=['GET'])
@@ -346,7 +338,7 @@ def user_by_nickname3(username):
     user_1 = User.get_by_username(username)
     if not user_1:
         return handle_error_format('User with such username does not exist.',
-                                   'Field \'username\' in the request body.'), 400
+                                   'Field \'username\' in the request body.'), 404
 
     return {
                "id": user_1.id,
@@ -354,7 +346,7 @@ def user_by_nickname3(username):
                "firstname": user_1.firstname,
                "lastname": user_1.lastname,
                "email": user_1.email,
-               "password": user_1.password_hash,
+               "password": user_1.password,
            }, 200
 
 
