@@ -15,14 +15,23 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 # @app.before_request
 # def create_tables():
-# db.drop_all()
-# db.create_all()
-# db.session.commit()
+#   db.drop_all()
+#   db.create_all()
+#   db.session.commit()
+
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 auth = HTTPBasicAuth()
 
+
+@app.after_request
+def after_request(response):
+    header = response.headers
+    header['Access-Control-Allow-Origin'] = '*'
+    header['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
+    header['Access-Control-Allow-Headers'] = 'content-type'
+    return response
 
 @auth.verify_password
 def verify_password(username, password):
@@ -217,7 +226,7 @@ def update_product():
 
 @app.route('/product/<int:product_id>', methods=['GET'])
 @handle_server_exception
-@auth.login_required(role='user')
+@auth.login_required(role=['user', 'admin'])
 def product_by_id(product_id):
     product_1 = Product.get_by_id(product_id)
 
@@ -244,7 +253,6 @@ def delete_product_by_id(ProductId: int):
     if admin in user.roles:
         return Product.delete(ProductId)
     return Product.delete(ProductId)
-
 
 
 @app.route('/user', methods=['POST'])
@@ -333,13 +341,31 @@ def delete_user_by_id(userId: int):
 
 
 @app.route('/user/<string:username>', methods=['GET'])
-@auth.login_required(role='user')
+@auth.login_required(role=['user', 'admin'])
 def user_by_nickname3(username):
     user_1 = User.get_by_username(username)
     if not user_1:
         return handle_error_format('User with such username does not exist.',
                                    'Field \'username\' in the request body.'), 404
 
+    return {
+               "id": user_1.id,
+               "username": user_1.username,
+               "firstname": user_1.firstname,
+               "lastname": user_1.lastname,
+               "email": user_1.email,
+               "password": user_1.password,
+           }, 200
+
+
+@app.route('/user/id/<userId>', methods=['GET'])
+@auth.login_required(role='admin')
+@handle_server_exception
+def get_user_by_id(userId: int):
+    user_1 = User.get_by_id(userId)
+    if not user_1:
+        return handle_error_format('User with such id does not exist.',
+                                   'Field \'userId\' in path parameters.'), 404
     return {
                "id": user_1.id,
                "username": user_1.username,
