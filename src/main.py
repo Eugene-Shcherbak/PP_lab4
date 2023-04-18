@@ -1,4 +1,4 @@
-from flask import Flask
+from flask import Flask, jsonify
 from waitress import serve
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -29,9 +29,10 @@ auth = HTTPBasicAuth()
 def after_request(response):
     header = response.headers
     header['Access-Control-Allow-Origin'] = '*'
-    header['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS'
-    header['Access-Control-Allow-Headers'] = 'content-type'
+    header['Access-Control-Allow-Methods'] = 'POST, GET, OPTIONS, DELETE, PUT'
+    header['Access-Control-Allow-Headers'] = 'content-type, authorization'
     return response
+
 
 @auth.verify_password
 def verify_password(username, password):
@@ -331,6 +332,17 @@ def update_user_by_id(userId: int):
     user1.save_db()
 
     return User.save(user1)
+
+
+@app.route("/user/login", methods=["POST"])
+@auth.login_required()
+def login():
+    return jsonify({"Success": "You are logged in successfully"})
+
+
+@app.route("/user/logout", methods=["POST"])
+def logout():
+    return jsonify({"Success": "You successfully logged out"})
 
 
 @app.route('/user/<userId>', methods=['DELETE'])
