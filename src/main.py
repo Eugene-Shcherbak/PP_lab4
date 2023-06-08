@@ -169,7 +169,6 @@ def hello():
 
 @app.route("/product", methods=['POST'])
 @handle_server_exception
-@auth.login_required(role='admin')
 def product():
     pars = reqparse.RequestParser()
     pars.add_argument('title', help='name cannot be blank', required=True)
@@ -194,12 +193,11 @@ def product():
         product_1.save_db()
         return {'message': 'Product was successfully created'}, 200
     except:
-        return {'message': 'Product name or description is alredy taken'}, 500
+        return {'message': 'Product name or description is already taken'}, 500
 
 
 @app.route("/product", methods=['PUT'])
 @handle_server_exception
-@auth.login_required(role='admin')
 def update_product():
     pars = reqparse.RequestParser()
     pars.add_argument('id', help='id cannot be blank', required=True)
@@ -222,7 +220,7 @@ def update_product():
         db.session.commit()
         return {'message': 'Product was successfully updated'}, 200
     except:
-        return {'message': 'Product name or description is alredy taken'}, 500
+        return {'message': 'Product name or description is already taken'}, 500
 
 
 @app.route('/product/<int:product_id>', methods=['GET'])
@@ -241,6 +239,24 @@ def product_by_id(product_id):
             'state': product_1.state,
             'category': product_1.category
             }, 200
+
+
+@app.route('/product/all', methods=['GET'])
+@handle_server_exception
+def get_all_products():
+    products = Product.query.all()
+    serialized_products = [
+        {
+            'id': product.id,
+            'title': product.title,
+            'text': product.text,
+            'state': product.state,
+            'category': product.category
+        }
+        for product in products
+    ]
+    return jsonify({'products': serialized_products}), 200
+
 
 
 @app.route('/product/<ProductId>', methods=['DELETE'])
